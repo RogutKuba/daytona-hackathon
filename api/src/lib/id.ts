@@ -4,6 +4,7 @@ export const Entities = {
   experiment: 'e',
   variant: 'v',
   agent: 'a',
+  codeAgent: 'ca',
 } as const;
 
 export type Entities = typeof Entities;

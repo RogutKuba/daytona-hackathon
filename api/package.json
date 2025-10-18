@@ -8,8 +8,11 @@
     "inngest": "npx inngest-cli@latest dev -u http://localhost:8000/inngest"
   },
   "dependencies": {
+    "@ai-sdk/google": "^2.0.23",
     "@bogeychan/elysia-logger": "^0.1.10",
     "@daytonaio/sdk": "^0.111.0",
+    "@elysiajs/cors": "^1.4.0",
+    "ai": "^5.0.76",
     "browser-use-sdk": "^2.0.4",
     "drizzle-kit": "^0.31.5",
     "drizzle-orm": "^0.44.6",

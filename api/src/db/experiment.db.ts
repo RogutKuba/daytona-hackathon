@@ -1,5 +1,5 @@
 import { Id } from '@/lib/id';
-import { pgTable, text, timestamp } from 'drizzle-orm/pg-core';
+import { pgTable, text, timestamp, jsonb } from 'drizzle-orm/pg-core';
 
 export const experimentsTable = pgTable('experiments', {
   id: text('id').$type<Id<'experiment'>>().primaryKey(),
@@ -11,6 +11,7 @@ export const experimentsTable = pgTable('experiments', {
     .$type<'pending' | 'running' | 'completed' | 'failed'>()
     .notNull()
     .default('pending'),
+  variantSuggestions: jsonb('variant_suggestions').$type<string[]>(),
 });
 
 export type ExperimentEntity = typeof experimentsTable.$inferSelect;

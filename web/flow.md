@@ -21,7 +21,7 @@ This document outlines the user experience for an AI-powered system that continu
 - Examples: "Increase signup conversion", "Fix layout bugs", "Improve user engagement"
 - Purpose: Defines what the AI should optimize for
 
-**Primary Metric / KPI**
+**Primary Metric**
 - Input: Dropdown selection
 - Options: conversion rate, dwell time, bounce rate, click-through rate, etc.
 - Purpose: Defines how success will be measured

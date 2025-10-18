@@ -5,6 +5,7 @@ import { daytona } from '@/lib/daytona';
 import { desc, eq } from 'drizzle-orm';
 import Elysia, { t } from 'elysia';
 import { inngestClient } from '@/lib/inngest-client';
+import { VariantEntity, variantsTable } from '@/db/variant.db';
 
 export const experimentRoutes = new Elysia({ prefix: '/experiment' })
   .get('/', () => {
@@ -67,7 +68,7 @@ export abstract class ExperimentService {
   /**
    * This creates sandbox, clones repo, installs dependencies, and starts dev server
    */
-  static async initRepository(repoUrl: string) {
+  static async initRepository(repoUrl: string, experimentId: Id<'experiment'>) {
     let start = Date.now();
     let end = Date.now();
 
@@ -130,9 +131,26 @@ export abstract class ExperimentService {
     end = Date.now();
     console.log(`Time taken to get preview link: ${end - start}ms`);
 
+    // insert to db
+    const newVariant: VariantEntity = {
+      id: generateId('variant'),
+      createdAt: new Date().toISOString(),
+      experimentId: experimentId,
+      daytonaSandboxId: sandbox.id,
+      publicUrl: previewUrl.url,
+      type: 'control',
+      suggestion: null, // Control variant has no suggestion - it's the baseline
+      analysis: null,
+    };
+
+    await db.insert(variantsTable).values(newVariant);
+
     return {
-      ...sandbox,
-      previewUrl: previewUrl.url,
+      sandbox: {
+        ...sandbox,
+        previewUrl: previewUrl.url,
+      },
+      variant: newVariant,
     };
   }
 }

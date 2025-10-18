@@ -351,6 +351,257 @@ export const resilientJob = inngestClient.createFunction(
 );
 ```
 
+## Code Agent Pattern
+
+### Overview
+
+The **Code Agent** pattern enables AI-powered code modifications within Daytona sandboxes. Code agents are autonomous Claude Code instances that implement UX improvements and code changes based on experiment results.
+
+### Architecture
+
+```
+Experiment Flow:
+1. Control Variant Test (Browser Agent explores and identifies issues)
+2. AI Generates UX Improvement Suggestions
+3. For Each Suggestion:
+   ├─> Create Code Agent
+   ├─> Clone Sandbox
+   ├─> Spawn Claude Code Agent
+   ├─> Implement Changes
+   ├─> Test New Variant (Browser Agent)
+   └─> Compare Results
+```
+
+### Database Schema
+
+**Code Agent Entity** (`src/db/codeAgent.db.ts`):
+
+```typescript
+export const codeAgentsTable = pgTable('code_agents', {
+  id: text('id').$type<Id<'code_agent'>>().primaryKey(),
+
+  // Relations
+  experimentId: text('experiment_id').references(() => experimentsTable.id),
+  variantId: text('variant_id').references(() => variantsTable.id),
+
+  // Claude Code Details
+  claudeSessionId: text('claude_session_id'),
+  daytonaSandboxId: text('daytona_sandbox_id').notNull(),
+
+  // Task
+  suggestion: text('suggestion').notNull(),
+  implementationPrompt: text('implementation_prompt').notNull(),
+
+  // Status
+  status: text('status').$type<'pending' | 'running' | 'completed' | 'failed'>(),
+
+  // Results
+  implementationSummary: text('implementation_summary'),
+  filesModified: jsonb('files_modified').$type<string[]>(),
+  codeChanges: jsonb('code_changes').$type<{file: string; changes: string}[]>(),
+  logs: text('logs'),
+});
+```
+
+### Service Pattern
+
+**Code Agent Service** (`src/service/codeAgent/CodeAgent.service.ts`):
+
+```typescript
+export abstract class CodeAgentService {
+  // Create a new variant sandbox by cloning the repo
+  static async createVariantSandbox(repoUrl: string, experimentId: string) {
+    const sandbox = await daytona.create({
+      language: 'typescript',
+      envVars: { VARIANT_TYPE: 'experiment' }
+    });
+    await sandbox.git.clone(repoUrl, 'workspace/commerce');
+    await sandbox.process.executeCommand('npm install', 'workspace/commerce');
+    return { sandboxId: sandbox.id };
+  }
+
+  // Spawn Claude Code agent to implement changes
+  static async spawnClaudeCodeAgent(sandboxId: string, suggestion: string) {
+    const prompt = CodeAgentService.generateImplementationPrompt(suggestion);
+    // Initialize Claude Code session in the sandbox
+    const claudeSessionId = await initializeClaudeSession(sandboxId, prompt);
+    return { claudeSessionId, implementationPrompt: prompt };
+  }
+
+  // Monitor Claude's progress
+  static async monitorClaudeProgress(claudeSessionId: string) {
+    // Poll Claude Code API for status and results
+    return { status: 'completed', filesModified: [...], logs: '...' };
+  }
+
+  // Start dev server and get preview URL
+  static async startVariantServer(sandboxId: string) {
+    const sandbox = await daytona.get(sandboxId);
+    await sandbox.process.executeCommand('pm2 start npm -- run dev');
+    const previewUrl = await sandbox.getPreviewLink(3000);
+    return { previewUrl: previewUrl.url };
+  }
+}
+```
+
+### Job Pattern
+
+**Code Agent Job** (`src/service/codeAgent/CodeAgent.jobs.ts`):
+
+```typescript
+export const implementVariantJob = inngestClient.createFunction(
+  { id: 'implement-variant' },
+  { event: 'variant/implement' },
+  async ({ event, step }) => {
+    const { experimentId, suggestion, repoUrl } = event.data;
+
+    // Step 1: Create new sandbox for variant
+    const sandbox = await step.run('create-variant-sandbox', async () => {
+      return await CodeAgentService.createVariantSandbox(repoUrl, experimentId);
+    });
+
+    // Step 2: Create variant entity
+    const variant = await step.run('create-variant-entity', async () => {
+      return await db.insert(variantsTable).values({
+        experimentId,
+        daytonaSandboxId: sandbox.sandboxId,
+        type: 'experiment',
+        suggestion,
+      });
+    });
+
+    // Step 3: Create code agent entity
+    const codeAgent = await step.run('create-code-agent', async () => {
+      return await CodeAgentService.createCodeAgent({
+        experimentId,
+        variantId: variant.id,
+        daytonaSandboxId: sandbox.sandboxId,
+        suggestion,
+      });
+    });
+
+    // Step 4: Spawn Claude Code agent
+    const claude = await step.run('spawn-claude-agent', async () => {
+      return await CodeAgentService.spawnClaudeCodeAgent(
+        sandbox.sandboxId,
+        suggestion
+      );
+    });
+
+    // Step 5: Monitor implementation
+    await step.run('monitor-implementation', async () => {
+      const result = await CodeAgentService.monitorClaudeProgress(
+        claude.claudeSessionId
+      );
+
+      await CodeAgentService.updateResults(codeAgent.id, {
+        implementationSummary: result.summary,
+        filesModified: result.filesModified,
+        logs: result.logs,
+      });
+    });
+
+    // Step 6: Start dev server
+    const preview = await step.run('start-variant-server', async () => {
+      return await CodeAgentService.startVariantServer(sandbox.sandboxId);
+    });
+
+    // Step 7: Update variant with preview URL
+    await step.run('update-variant-url', async () => {
+      await db.update(variantsTable)
+        .set({ publicUrl: preview.previewUrl })
+        .where(eq(variantsTable.id, variant.id));
+    });
+  }
+);
+```
+
+### Key Patterns
+
+1. **Sandbox Isolation**: Each variant gets its own Daytona sandbox
+2. **AI-Powered Implementation**: Claude Code implements the UX improvements
+3. **Full Audit Trail**: Every change is tracked (files modified, code changes, logs)
+4. **Autonomous Execution**: Code agents work independently in their sandboxes
+5. **State Management**: Track code agent status through completion
+
+### Complete Experiment Flow
+
+```typescript
+// 1. Run control variant test
+const controlAnalysis = await runBrowserAgentTest(controlVariantUrl);
+
+// 2. Generate improvement suggestions
+const suggestions = await AiService.generateExperimentVariants(
+  controlAnalysis,
+  experimentGoal
+);
+
+// 3. For each suggestion, spawn a code agent
+for (const suggestion of suggestions) {
+  await inngestClient.send({
+    name: 'variant/implement',
+    data: { experimentId, suggestion, repoUrl }
+  });
+}
+
+// 4. Each code agent:
+//    - Creates a new sandbox
+//    - Spawns Claude Code to implement changes
+//    - Starts dev server
+//    - Returns preview URL
+
+// 5. Test each experimental variant
+//    - Run same browser agent test
+//    - Compare results to control
+```
+
+### Integration with Experiment Workflow
+
+```
+src/service/experiment/Experiment.jobs.ts
+  ├─> Step 1: Init Control Variant (Daytona sandbox)
+  ├─> Step 2: Run Browser Agent Test
+  ├─> Step 3: Analyze Results (AI)
+  ├─> Step 4: Generate Suggestions (AI)
+  └─> Step 5: Spawn Code Agents (for each suggestion)
+        └─> src/service/codeAgent/CodeAgent.jobs.ts
+              ├─> Create variant sandbox
+              ├─> Spawn Claude Code agent
+              ├─> Monitor implementation
+              ├─> Start dev server
+              └─> Trigger browser test on new variant
+```
+
+### Directory Structure
+
+```
+src/
+├── db/
+│   ├── experiment.db.ts
+│   ├── variant.db.ts
+│   ├── agent.db.ts          # Browser agents
+│   └── codeAgent.db.ts      # Claude Code agents
+├── service/
+│   ├── experiment/
+│   │   ├── Experiment.service.ts
+│   │   └── Experiment.jobs.ts
+│   ├── browser/
+│   │   └── Browser.service.ts
+│   ├── codeAgent/
+│   │   ├── CodeAgent.service.ts
+│   │   └── CodeAgent.jobs.ts
+│   └── ai/
+│       └── Ai.service.ts
+```
+
+### Best Practices
+
+1. **Prompt Engineering**: Generate clear, specific implementation prompts for Claude
+2. **Error Handling**: Track failures and provide detailed error messages
+3. **Resource Management**: Clean up sandboxes after experiments complete
+4. **Monitoring**: Log all Claude Code actions for debugging and analysis
+5. **Testing**: Always test variant implementations before comparing to control
+
 ## Summary
 
 - **Libraries** (`src/lib/`): Initialize clients, never use them directly
