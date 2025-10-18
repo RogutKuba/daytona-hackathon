@@ -22,7 +22,7 @@ interface ControlVariantCardProps {
         success: boolean;
         summary: string;
         insights?: string;
-        issues?: string[];
+        issues?: string;
       } | null;
       rawLogs: string | null;
     };
@@ -102,7 +102,7 @@ export const ControlVariantCard = ({
                 </div>
 
                 {/* Insights */}
-                {analysis?.insights?.length > 0 && (
+                {analysis?.insights && (
                   <div>
                     <p className='text-sm font-medium text-neutral-700 mb-2'>
                       Insights
@@ -117,21 +117,16 @@ export const ControlVariantCard = ({
                 )}
 
                 {/* Issues */}
-                {analysis?.issues?.length > 0 && (
+                {analysis?.issues && (
                   <div>
                     <p className='text-sm font-medium text-neutral-700 mb-2'>
                       Issues
                     </p>
                     <ul className='space-y-2'>
-                      {analysis?.issues?.map((issue, idx) => (
-                        <li
-                          key={idx}
-                          className='text-sm text-neutral-700 flex items-start gap-2'
-                        >
-                          <span className='text-neutral-400 mt-1'>•</span>
-                          <span className='flex-1'>{issue}</span>
-                        </li>
-                      ))}
+                      <li className='text-sm text-neutral-700 flex items-start gap-2'>
+                        <span className='text-neutral-400 mt-1'>•</span>
+                        <span className='flex-1'>{analysis.issues}</span>
+                      </li>
                     </ul>
                   </div>
                 )}

@@ -71,8 +71,8 @@ Return ONLY the task description, no additional formatting or explanation.`,
   ): Promise<{
     success: boolean;
     summary: string;
-    insights: string[];
-    issues: string[];
+    insights: string;
+    issues: string;
   }> {
     const { text } = await generateText({
       model,
@@ -126,7 +126,7 @@ Return ONLY valid JSON, no markdown formatting or additional text.`,
     controlResults: {
       success: boolean;
       summary: string;
-      insights: string[];
+      insights: string;
     },
     goal: string
   ): Promise<string[]> {
@@ -139,7 +139,7 @@ Original Issue: ${goal}
 Control Variant Test Results:
 - Success: ${controlResults.success}
 - Summary: ${controlResults.summary}
-- Key Insights: ${controlResults.insights.join(' | ')}
+- Key Insights: ${controlResults.insights}
 
 Based on these results, generate 3-5 specific, actionable UX improvements that could address the identified issues and improve the user experience.
 

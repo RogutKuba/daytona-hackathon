@@ -23,7 +23,7 @@ export const agentsTable = pgTable('agents', {
     success: boolean;
     summary: string;
     insights: string;
-    issues?: string[];
+    issues: string;
   }>(),
   rawLogs: text('raw_logs'),
 });
