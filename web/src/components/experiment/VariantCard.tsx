@@ -8,39 +8,30 @@ import {
   RiExternalLinkLine,
 } from '@remixicon/react';
 
-interface VariantIdeaCardProps {
-  variantIdea: {
+interface VariantCardProps {
+  variant: {
     id: string;
-    description: string;
-    reasoning: string;
-    status: 'pending' | 'in_progress' | 'completed';
+    suggestion: string | null;
+    publicUrl: string;
+    daytonaSandboxId: string;
+    analysis: {
+      success: boolean;
+      summary: string;
+      insights: string[];
+      issues: string[];
+    } | null;
     codeAgent?: {
       id: string;
       status: 'pending' | 'running' | 'completed' | 'failed';
-      prUrl?: string;
-      sandboxUrl?: string;
-      publicUrl?: string;
+      daytonaSandboxId: string;
+      implementationSummary: string | null;
+      filesModified: string[] | null;
     };
   };
   index: number;
 }
 
-export const VariantCard = ({ variantIdea, index }: VariantIdeaCardProps) => {
-  const statusConfig = {
-    pending: {
-      icon: <RiTimeLine size={12} />,
-      label: 'Pending',
-    },
-    in_progress: {
-      icon: <RiLoader4Line size={12} className="animate-spin" />,
-      label: 'In Progress',
-    },
-    completed: {
-      icon: <RiCheckLine size={12} />,
-      label: 'Completed',
-    },
-  };
-
+export const VariantCard = ({ variant, index }: VariantCardProps) => {
   const codeAgentStatusConfig = {
     pending: {
       icon: <RiTimeLine size={12} />,
@@ -60,8 +51,9 @@ export const VariantCard = ({ variantIdea, index }: VariantIdeaCardProps) => {
     },
   };
 
-  const config = statusConfig[variantIdea.status];
-  const codeAgent = variantIdea.codeAgent;
+  const codeAgent = variant.codeAgent;
+  const status = codeAgent?.status || 'pending';
+  const config = codeAgentStatusConfig[status];
 
   return (
     <Card>
@@ -72,7 +64,7 @@ export const VariantCard = ({ variantIdea, index }: VariantIdeaCardProps) => {
               {index + 1}
             </div>
             <div className="flex-1 min-w-0">
-              <CardTitle className="text-sm leading-tight">{variantIdea.description}</CardTitle>
+              <CardTitle className="text-sm leading-tight">{variant.suggestion || 'Variant'}</CardTitle>
             </div>
           </div>
           <div className="flex items-center gap-1 text-neutral-500 flex-shrink-0">
@@ -83,12 +75,14 @@ export const VariantCard = ({ variantIdea, index }: VariantIdeaCardProps) => {
       </CardHeader>
 
       <CardContent className="space-y-3">
-        <div>
-          <p className="text-xs text-neutral-500 mb-1.5">Reasoning</p>
-          <p className="text-xs text-neutral-700 leading-relaxed">
-            {variantIdea.reasoning}
-          </p>
-        </div>
+        {variant.analysis && (
+          <div>
+            <p className="text-xs text-neutral-500 mb-1.5">Analysis Summary</p>
+            <p className="text-xs text-neutral-700 leading-relaxed">
+              {variant.analysis.summary}
+            </p>
+          </div>
+        )}
 
         {/* Code Agent Section */}
         {codeAgent && (
@@ -101,38 +95,52 @@ export const VariantCard = ({ variantIdea, index }: VariantIdeaCardProps) => {
               </div>
             </div>
 
-            {/* Action Buttons */}
-            {(codeAgent.prUrl || codeAgent.publicUrl) && (
-              <div className="space-y-2">
-                {codeAgent.prUrl && (
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="w-full justify-start h-8"
-                    onClick={() => window.open(codeAgent.prUrl, '_blank')}
-                  >
-                    <RiGitPullRequestLine size={12} className="mr-2" />
-                    View Pull Request
-                    <RiExternalLinkLine size={10} className="ml-auto" />
-                  </Button>
-                )}
+            {/* Implementation Summary */}
+            {codeAgent.implementationSummary && (
+              <div>
+                <p className="text-xs text-neutral-500 mb-1.5">Implementation</p>
+                <p className="text-xs text-neutral-700 leading-relaxed">
+                  {codeAgent.implementationSummary}
+                </p>
+              </div>
+            )}
 
-                {codeAgent.publicUrl && (
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="w-full justify-start h-8"
-                    onClick={() => window.open(codeAgent.publicUrl, '_blank')}
-                  >
-                    <RiExternalLinkLine size={12} className="mr-2" />
-                    View Preview
-                  </Button>
-                )}
+            {/* Files Modified */}
+            {codeAgent.filesModified && codeAgent.filesModified.length > 0 && (
+              <div>
+                <p className="text-xs text-neutral-500 mb-1.5">Files Modified</p>
+                <div className="space-y-1">
+                  {codeAgent.filesModified.slice(0, 3).map((file, idx) => (
+                    <p key={idx} className="text-xs text-neutral-600 font-mono bg-neutral-50 p-1 rounded">
+                      {file}
+                    </p>
+                  ))}
+                  {codeAgent.filesModified.length > 3 && (
+                    <p className="text-xs text-neutral-500">
+                      +{codeAgent.filesModified.length - 3} more files
+                    </p>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* Action Buttons */}
+            {variant.publicUrl && (
+              <div className="space-y-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="w-full justify-start h-8"
+                  onClick={() => window.open(variant.publicUrl, '_blank')}
+                >
+                  <RiExternalLinkLine size={12} className="mr-2" />
+                  View Preview
+                </Button>
               </div>
             )}
 
             {/* Status Messages */}
-            {codeAgent.status === 'running' && !codeAgent.publicUrl && (
+            {codeAgent.status === 'running' && (
               <div className="flex items-start gap-2 text-neutral-600 bg-neutral-50 p-2 rounded border">
                 <RiLoader4Line size={12} className="animate-spin mt-0.5 flex-shrink-0" />
                 <p className="text-xs">Creating changes...</p>

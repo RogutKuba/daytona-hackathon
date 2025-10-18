@@ -4,6 +4,7 @@ import { db } from '@/lib/client';
 import { generateId, Id } from '@/lib/id';
 import { eq } from 'drizzle-orm';
 import Elysia, { t } from 'elysia';
+import { env } from '@/lib/env';
 
 export const codeAgentRoutes = new Elysia({ prefix: '/code-agent' })
   .get('/:id', ({ params }) => {
@@ -23,7 +24,60 @@ export const codeAgentRoutes = new Elysia({ prefix: '/code-agent' })
           params.experimentId as Id<'experiment'>
         )
       );
-  });
+  })
+  .post(
+    '/:id/results',
+    async ({ params, body }) => {
+      const codeAgentId = params.id as Id<'codeAgent'>;
+
+      console.log(
+        `Updating code agent ${codeAgentId} with results: ${JSON.stringify(
+          body,
+          null,
+          2
+        )}`
+      );
+
+      // Update the code agent with results from the Claude Code script
+      await db
+        .update(codeAgentsTable)
+        .set({
+          ...body,
+          updatedAt: new Date().toISOString(),
+        })
+        .where(eq(codeAgentsTable.id, codeAgentId));
+
+      return { success: true };
+    },
+    {
+      params: t.Object({
+        id: t.String(),
+      }),
+      body: t.Object({
+        status: t.Optional(
+          t.Union([
+            t.Literal('running'),
+            t.Literal('completed'),
+            t.Literal('failed'),
+          ])
+        ),
+        startedAt: t.Optional(t.String()),
+        completedAt: t.Optional(t.String()),
+        implementationSummary: t.Optional(t.String()),
+        filesModified: t.Optional(t.Array(t.String())),
+        codeChanges: t.Optional(
+          t.Array(
+            t.Object({
+              file: t.String(),
+              changes: t.String(),
+            })
+          )
+        ),
+        logs: t.Optional(t.String()),
+        errorMessage: t.Optional(t.String()),
+      }),
+    }
+  );
 
 export abstract class CodeAgentService {
   static WORK_DIR = 'workspace/commerce';
@@ -127,6 +181,7 @@ export abstract class CodeAgentService {
         NODE_ENV: 'development',
         EXPERIMENT_ID: experimentId,
         VARIANT_TYPE: 'experiment',
+        ANTHROPIC_API_KEY: env.ANTHROPIC_API_KEY,
       },
     });
 
@@ -142,39 +197,115 @@ export abstract class CodeAgentService {
       CodeAgentService.WORK_DIR
     );
 
+    // ANTHROPIC_API_KEY is now set via envVars when creating the sandbox
+
+    // start dev server
+    await sandbox.process.executeCommand(
+      `pm2 start npm --name "variant-dev-server" -- run dev`,
+      CodeAgentService.WORK_DIR
+    );
+
+    const previewUrl = await sandbox.getPreviewLink(3000);
+    console.log(`Preview URL: ${previewUrl.url}`);
+
     return {
       sandboxId: sandbox.id,
       sandbox,
+      previewUrl: previewUrl.url,
     };
   }
 
   /**
    * Spawn a Claude Code agent in the sandbox to implement changes
-   * This method would integrate with Claude Code API/SDK when available
+   * Uses the Claude Agent SDK in single-shot mode
    */
   static async spawnClaudeCodeAgent(
     sandboxId: string,
+    codeAgentId: Id<'codeAgent'>,
     suggestion: string,
-    goal: string
+    goal: string,
+    apiUrl: string
   ): Promise<{
     claudeSessionId: string;
     implementationPrompt: string;
   }> {
+    const sandbox = await daytona.get(sandboxId);
+
     // Generate the implementation prompt for Claude
     const implementationPrompt = CodeAgentService.generateImplementationPrompt(
       suggestion,
       goal
     );
 
-    // TODO: Integrate with Claude Code API to spawn agent in sandbox
-    // For now, we'll return a placeholder
-    // In production, this would:
-    // 1. Initialize a Claude Code session in the Daytona sandbox
-    // 2. Send the implementation prompt
-    // 3. Monitor progress
-    // 4. Return the session ID
+    // Check if ANTHROPIC_API_KEY is available in the sandbox
+    const envCheck = await sandbox.process.executeCommand(
+      `echo "ANTHROPIC_API_KEY is: $ANTHROPIC_API_KEY"`,
+      CodeAgentService.WORK_DIR
+    );
+    console.log(`Environment check result:`, envCheck);
 
-    const claudeSessionId = `claude-session-${Date.now()}`;
+    // Read the script template
+    const fs = await import('fs/promises');
+    const path = await import('path');
+    const templatePath = path.join(
+      process.cwd(),
+      'src/script/run-claude-code.template.js'
+    );
+    let scriptContent = await fs.readFile(templatePath, 'utf-8');
+
+    // Replace placeholders in the template
+    scriptContent = scriptContent
+      .replace('{{CODE_AGENT_ID}}', codeAgentId)
+      .replace('{{API_URL}}', apiUrl)
+      .replace(
+        '{{IMPLEMENTATION_PROMPT}}',
+        implementationPrompt.replace(/`/g, '\\`').replace(/\$/g, '\\$')
+      );
+
+    console.log('Writing Claude Code script to sandbox...');
+
+    // Write the script to the sandbox
+    const scriptPath = 'script.js';
+
+    // Write the script content to the file using a heredoc approach
+    // This handles quotes, newlines, and special characters properly
+    const writeCommand = `cat > ${scriptPath} << 'EOF'
+${scriptContent}
+EOF`;
+
+    const writeResult = await sandbox.process.executeCommand(
+      writeCommand,
+      CodeAgentService.WORK_DIR
+    );
+    console.log(
+      `used-write-command`,
+      `cat > ${scriptPath} << 'EOF' ... EOF\n\n`,
+      writeResult
+    );
+
+    console.log('Installing Claude Agent SDK...');
+
+    // Install the Claude Agent SDK in the sandbox
+    await sandbox.process.executeCommand(
+      'npm install -g @anthropic-ai/claude-agent-sdk',
+      CodeAgentService.WORK_DIR
+    );
+
+    console.log('Starting Claude Code agent...');
+
+    // Execute the script using PM2 for better process management
+    // The script will report results back to the API via POST /code-agent/:id/results
+    const executeResult = await sandbox.process.executeCommand(
+      `ANTHROPIC_API_KEY=${env.ANTHROPIC_API_KEY} pm2 start ${scriptPath} --name "claude-code-${codeAgentId}" --no-autorestart`,
+      CodeAgentService.WORK_DIR
+    );
+
+    console.log(
+      `claude-code execution result: ${JSON.stringify(executeResult, null, 2)}`
+    );
+    console.log('Claude Code agent started');
+
+    const claudeSessionId = `claude-session-${codeAgentId}-${Date.now()}`;
 
     return {
       claudeSessionId,
@@ -217,46 +348,59 @@ Please implement this improvement now.`;
   }
 
   /**
-   * Start the dev server in the variant sandbox
-   */
-  static async startVariantServer(sandboxId: string) {
-    const sandbox = await daytona.get(sandboxId);
-
-    // Start dev server with pm2
-    await sandbox.process.executeCommand(
-      `pm2 start npm --name "variant-dev-server" -- run dev`,
-      CodeAgentService.WORK_DIR
-    );
-
-    // Wait for server to start
-    await new Promise((resolve) => setTimeout(resolve, 3000));
-
-    // Get preview URL
-    const previewUrl = await sandbox.getPreviewLink(3000);
-
-    return {
-      previewUrl: previewUrl.url,
-    };
-  }
-
-  /**
    * Monitor Claude Code agent progress
-   * This would poll the Claude Code API to check on progress
+   * Polls the database to check if the script has updated the code agent
    */
-  static async monitorClaudeProgress(claudeSessionId: string): Promise<{
+  static async monitorClaudeProgress(
+    codeAgentId: Id<'codeAgent'>,
+    maxWaitTime: number
+  ): Promise<{
     status: 'running' | 'completed' | 'failed';
     summary?: string;
     filesModified?: string[];
     logs?: string;
     error?: string;
   }> {
-    // TODO: Implement actual Claude Code API monitoring
-    // For now, return a placeholder
-    return {
-      status: 'completed',
-      summary: 'Implementation completed successfully',
-      filesModified: ['src/components/FilterSidebar.tsx'],
-      logs: 'Claude implementation logs would go here',
-    };
+    const startTime = Date.now();
+    const pollInterval = 5000; // Poll every 5 seconds
+
+    while (Date.now() - startTime < maxWaitTime) {
+      // Query the database for the code agent
+      const codeAgent = await db
+        .select()
+        .from(codeAgentsTable)
+        .where(eq(codeAgentsTable.id, codeAgentId))
+        .limit(1);
+
+      if (codeAgent.length === 0) {
+        throw new Error(`Code agent ${codeAgentId} not found`);
+      }
+
+      const agent = codeAgent[0];
+
+      // Check if the agent has completed or failed
+      if (agent.status === 'completed') {
+        return {
+          status: 'completed',
+          summary: agent.implementationSummary || 'Implementation completed',
+          filesModified: (agent.filesModified as string[]) || [],
+          logs: agent.logs || '',
+        };
+      } else if (agent.status === 'failed') {
+        return {
+          status: 'failed',
+          error: agent.errorMessage || 'Implementation failed',
+          logs: agent.logs || '',
+        };
+      }
+
+      // Still running, wait before polling again
+      await new Promise((resolve) => setTimeout(resolve, pollInterval));
+    }
+
+    // Timeout
+    throw new Error(
+      `Code agent ${codeAgentId} did not complete within ${maxWaitTime}ms`
+    );
   }
 }

@@ -42,6 +42,7 @@ export const experimentRoutes = new Elysia({ prefix: '/experiment' })
         repoUrl: body.repoUrl,
         goal: body.goal,
         status: 'pending',
+        variantSuggestions: [],
       };
 
       await db.insert(experimentsTable).values(newExperiment);

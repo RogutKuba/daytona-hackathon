@@ -28,21 +28,18 @@ export const implementVariantJob = inngestClient.createFunction(
     );
 
     // Step 1: Create new sandbox for variant
-    const sandboxResult = await step.run(
-      'create-variant-sandbox',
-      async () => {
-        console.log(`Creating variant sandbox for experiment ${experimentId}`);
+    const sandboxResult = await step.run('create-variant-sandbox', async () => {
+      console.log(`Creating variant sandbox for experiment ${experimentId}`);
 
-        const result = await CodeAgentService.createVariantSandbox(
-          repoUrl,
-          experimentId,
-          suggestion
-        );
+      const result = await CodeAgentService.createVariantSandbox(
+        repoUrl,
+        experimentId,
+        suggestion
+      );
 
-        console.log(`Variant sandbox created: ${result.sandboxId}`);
-        return result;
-      }
-    );
+      console.log(`Variant sandbox created: ${result.sandboxId}`);
+      return result;
+    });
 
     // Step 2: Create variant entity in database
     const variant = await step.run('create-variant-entity', async () => {
@@ -53,7 +50,7 @@ export const implementVariantJob = inngestClient.createFunction(
         createdAt: new Date().toISOString(),
         experimentId,
         daytonaSandboxId: sandboxResult.sandboxId,
-        publicUrl: '', // Will be updated after dev server starts
+        publicUrl: sandboxResult.previewUrl,
         type: 'experiment',
         suggestion,
         analysis: null,
@@ -93,19 +90,16 @@ export const implementVariantJob = inngestClient.createFunction(
         `Spawning Claude Code agent in sandbox ${sandboxResult.sandboxId}`
       );
 
-      // Update code agent status to running
-      await CodeAgentService.updateStatus(
-        codeAgentResult.codeAgent.id,
-        'running',
-        {
-          startedAt: new Date().toISOString(),
-        }
-      );
+      // Get the API URL for the script to report back to
+      const apiUrl = 'https://ids-modes-writer-freeze.trycloudflare.com';
+      //  process.env.API_URL || `http://localhost:${process.env.PORT || 8000}`;
 
       const result = await CodeAgentService.spawnClaudeCodeAgent(
         sandboxResult.sandboxId,
+        codeAgentResult.codeAgent.id,
         suggestion,
-        goal
+        goal,
+        apiUrl
       );
 
       console.log(`Claude session initiated: ${result.claudeSessionId}`);
@@ -117,87 +111,34 @@ export const implementVariantJob = inngestClient.createFunction(
       'monitor-implementation',
       async () => {
         console.log(
-          `Monitoring Claude Code progress: ${claudeSession.claudeSessionId}`
+          `Monitoring Claude Code agent: ${codeAgentResult.codeAgent.id}`
         );
+        console.log('Waiting for Claude Code script to complete...');
 
-        // TODO: Implement actual Claude Code API monitoring
-        // For now, this is a placeholder that would poll Claude Code API
+        // Poll the database to check if the script has updated the code agent
+        // The script running in the sandbox will POST results to /code-agent/:id/results
         const result = await CodeAgentService.monitorClaudeProgress(
-          claudeSession.claudeSessionId
+          codeAgentResult.codeAgent.id,
+          2 * 60 * 1000 // 2 minutes timeout
         );
 
-        // Update code agent with results
-        if (result.status === 'completed') {
-          await CodeAgentService.updateResults(
-            codeAgentResult.codeAgent.id,
-            {
-              implementationSummary:
-                result.summary || 'Implementation completed',
-              filesModified: result.filesModified || [],
-              codeChanges: [],
-              logs: result.logs || '',
-            }
-          );
-        } else if (result.status === 'failed') {
-          await CodeAgentService.updateStatus(
-            codeAgentResult.codeAgent.id,
-            'failed',
-            {
-              completedAt: new Date().toISOString(),
-              errorMessage: result.error || 'Implementation failed',
-            }
-          );
-
-          throw new Error(
-            `Claude Code implementation failed: ${result.error}`
-          );
+        if (result.status === 'failed') {
+          console.error(`Implementation failed: ${result.error}`);
+          throw new Error(`Claude Code implementation failed: ${result.error}`);
         }
 
-        console.log(`Implementation ${result.status}: ${result.summary}`);
+        console.log(`Implementation completed: ${result.summary}`);
+        console.log(
+          `Files modified: ${result.filesModified?.join(', ') || 'none'}`
+        );
         return result;
       }
     );
 
-    // Step 6: Start development server and get preview URL
-    const previewResult = await step.run('start-variant-server', async () => {
-      console.log(
-        `Starting development server in sandbox ${sandboxResult.sandboxId}`
-      );
-
-      const result = await CodeAgentService.startVariantServer(
-        sandboxResult.sandboxId
-      );
-
-      console.log(`Dev server started, preview URL: ${result.previewUrl}`);
-      return result;
-    });
-
-    // Step 7: Update variant with preview URL
-    await step.run('update-variant-url', async () => {
-      console.log(`Updating variant ${variant.id} with preview URL`);
-
-      await db
-        .update(variantsTable)
-        .set({
-          publicUrl: previewResult.previewUrl,
-        })
-        .where(eq(variantsTable.id, variant.id));
-
-      console.log(`Variant ${variant.id} updated with URL`);
-    });
-
     console.log(
       `Variant implementation completed for experiment ${experimentId}`
     );
-    console.log(`Variant ID: ${variant.id}, URL: ${previewResult.previewUrl}`);
-
-    return {
-      variantId: variant.id,
-      codeAgentId: codeAgentResult.codeAgent.id,
-      sandboxId: sandboxResult.sandboxId,
-      previewUrl: previewResult.previewUrl,
-      suggestion,
-    };
+    console.log(`Variant ID: ${variant.id}, URL: ${sandboxResult.previewUrl}`);
 
     // TODO: Next step would be to trigger browser agent test on this new variant
     // await inngestClient.send({

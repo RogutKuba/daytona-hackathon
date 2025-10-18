@@ -125,19 +125,16 @@ export const ExperimentDetailContainer = ({ experimentId }: ExperimentDetailCont
               </div>
             </div>
 
-            {experiment.results && (
+            {experiment.variantSuggestions && experiment.variantSuggestions.length > 0 && (
               <div className="pt-4 border-t">
-                <p className="text-sm font-medium text-neutral-700 mb-2">Results</p>
-                <p className="text-sm text-neutral-600 mb-2">{experiment.results.message}</p>
-                {experiment.results.improvements && experiment.results.improvements.length > 0 && (
-                  <ul className="list-disc list-inside space-y-1">
-                    {experiment.results.improvements.map((improvement, idx) => (
-                      <li key={idx} className="text-sm text-green-700">
-                        {improvement}
-                      </li>
-                    ))}
-                  </ul>
-                )}
+                <p className="text-sm font-medium text-neutral-700 mb-2">Variant Suggestions</p>
+                <ul className="list-disc list-inside space-y-1">
+                  {experiment.variantSuggestions.map((suggestion, idx) => (
+                    <li key={idx} className="text-sm text-neutral-600">
+                      {suggestion}
+                    </li>
+                  ))}
+                </ul>
               </div>
             )}
           </CardContent>
@@ -162,19 +159,19 @@ export const ExperimentDetailContainer = ({ experimentId }: ExperimentDetailCont
         {/* Variants Section */}
         <div className="space-y-3">
           <h2 className="text-sm font-medium text-neutral-600">
-            Variants
-            {experiment.variantIdeas && (
+            Experimental Variants
+            {experiment.experimentalVariants && (
               <span className="text-neutral-400 font-normal ml-1">
-                ({experiment.variantIdeas.length})
+                ({experiment.experimentalVariants.length})
               </span>
             )}
           </h2>
-          {experiment.variantIdeas && experiment.variantIdeas.length > 0 ? (
+          {experiment.experimentalVariants && experiment.experimentalVariants.length > 0 ? (
             <div className="space-y-3">
-              {experiment.variantIdeas.map((idea, index) => (
+              {experiment.experimentalVariants.map((variant, index) => (
                 <VariantCard
-                  key={idea.id}
-                  variantIdea={idea}
+                  key={variant.id}
+                  variant={variant}
                   index={index}
                 />
               ))}
@@ -183,7 +180,7 @@ export const ExperimentDetailContainer = ({ experimentId }: ExperimentDetailCont
             <Card>
               <CardContent className="py-8 text-center">
                 <p className="text-sm text-neutral-500">
-                  Generating variant ideas...
+                  Generating experimental variants...
                 </p>
               </CardContent>
             </Card>

@@ -22,8 +22,8 @@ export const agentsTable = pgTable('agents', {
   result: jsonb('result').$type<{
     success: boolean;
     summary: string;
-    insights: string[];
-    issues: string[];
+    insights: string;
+    issues?: string[];
   }>(),
   rawLogs: text('raw_logs'),
 });
