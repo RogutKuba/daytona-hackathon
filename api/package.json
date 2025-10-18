@@ -1,0 +1,25 @@
+{
+  "name": "api",
+  "version": "1.0.50",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "dev": "bun run --watch src/index.ts",
+    "db:push": "drizzle-kit push",
+    "inngest": "npx inngest-cli@latest dev -u http://localhost:8000/inngest"
+  },
+  "dependencies": {
+    "@bogeychan/elysia-logger": "^0.1.10",
+    "@daytonaio/sdk": "^0.111.0",
+    "browser-use-sdk": "^2.0.4",
+    "drizzle-kit": "^0.31.5",
+    "drizzle-orm": "^0.44.6",
+    "elysia": "latest",
+    "inngest": "^3.44.3",
+    "nanoid": "^5.1.6",
+    "pg": "^8.16.3",
+    "pino-pretty": "^13.1.2"
+  },
+  "devDependencies": {
+    "bun-types": "latest"
+  }
+}
